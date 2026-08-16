@@ -55,6 +55,6 @@
     "onnxruntime-node": "^1.27.0"
   },
   "engines": {
-    "node": ">=20.19.0"
+    "node": "22.x"
   }
 }
