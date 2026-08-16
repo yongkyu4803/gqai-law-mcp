@@ -250,14 +250,22 @@ async function main() {
   }
 
   // 9. 캐시 — 같은 조회를 반복하면 2회차는 법제처를 다시 부르지 않아야 한다
+  //
+  // 반드시 판례(search_decisions)로 시험한다. 법령 검색으로 하면 upstream의
+  // 인메모리 lawCache가 도구 결과 단계에서 먼저 응답해버려 fetch 계층까지
+  // 내려오지 않고, 그러면 이 캐시의 카운터가 전혀 움직이지 않아 '실패'로 보인다.
+  // 판례 경로는 upstream이 캐시하지 않으므로 이 캐시가 유일한 계층이다.
   if (hasOc && cacheOn) {
+    const q = { query: "근로계약 해지 위약금", domain: "precedent" }
+    await callTool("search_decisions", q) // 캐시를 채운다
     const before = (await getHealth())?.cache ?? {}
-    await callTool("search_law", { query: "근로기준법" })
-    await callTool("search_law", { query: "근로기준법" })
+    await callTool("search_decisions", q) // 이번엔 전부 적중해야 한다
     const after = (await getHealth())?.cache ?? {}
-    const hitDelta = (after.hit ?? 0) - (before.hit ?? 0)
-    record("캐시", "동일 조회 반복", hitDelta > 0 ? "pass" : "fail",
-      `hit +${hitDelta}, 누적 적중률=${after.hitRate ?? "-"}`)
+    const lookupDelta = (after.lookup ?? 0) - (before.lookup ?? 0)
+    const missDelta = (after.miss ?? 0) - (before.miss ?? 0)
+    const ok = lookupDelta > 0 && missDelta === 0
+    record("캐시", "동일 조회 반복", ok ? "pass" : "fail",
+      `조회 ${lookupDelta}건 중 미스 ${missDelta}건, 누적 적중률=${after.hitRate ?? "-"}`)
   } else {
     record("캐시", "동일 조회 반복", "skip", cacheOn ? "LAW_OC 미설정" : "캐시 저장소 미설정")
   }
