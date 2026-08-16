@@ -1,0 +1,9 @@
+# 배포 번들에서 제외 — Function 번들 한도(계획서 관문 B) 방어
+test/
+docs/
+*.md
+!public/**
+.claude/
+.github/
+.husky/
+demo.gif

@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GQAI 법령조회 MCP</title>
+<meta name="description" content="법제처 국가법령정보 OPEN API 기반 원격 MCP 서버. 법령·판례·행정규칙·자치법규를 AI 클라이언트에서 바로 조회합니다.">
+<style>
+  :root {
+    --bg: #ffffff;
+    --surface: #f6f7f9;
+    --border: #e2e5ea;
+    --text: #1a1d21;
+    --muted: #5b6470;
+    --accent: #1f5f4e;
+    --accent-soft: #e8f2ee;
+    --code-bg: #f2f4f7;
+    --warn-bg: #fdf6e7;
+    --warn-border: #e8d5a3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a;
+      --surface: #1c2024;
+      --border: #2c3238;
+      --text: #e8eaed;
+      --muted: #9aa4b0;
+      --accent: #6fbfa5;
+      --accent-soft: #1b2b27;
+      --code-bg: #1c2024;
+      --warn-bg: #2a2415;
+      --warn-border: #4d4222;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0 1.25rem 4rem;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo",
+                 "Malgun Gothic", system-ui, sans-serif;
+    line-height: 1.7;
+    font-size: 16px;
+  }
+  main { max-width: 46rem; margin: 0 auto; }
+  header { padding: 3.5rem 0 2rem; border-bottom: 1px solid var(--border); }
+  h1 { margin: 0 0 .5rem; font-size: 1.75rem; letter-spacing: -.02em; }
+  .tagline { margin: 0; color: var(--muted); }
+  h2 {
+    margin: 2.75rem 0 .75rem; font-size: 1.1rem; letter-spacing: -.01em;
+    padding-bottom: .4rem; border-bottom: 1px solid var(--border);
+  }
+  h3 { margin: 1.5rem 0 .5rem; font-size: .95rem; color: var(--muted); font-weight: 600; }
+  p { margin: .6rem 0; }
+  ul { margin: .6rem 0; padding-left: 1.2rem; }
+  li { margin: .3rem 0; }
+  code {
+    background: var(--code-bg); border: 1px solid var(--border);
+    padding: .1em .4em; border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .875em; word-break: break-all;
+  }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 1rem; overflow-x: auto; margin: .75rem 0;
+  }
+  pre code { background: none; border: none; padding: 0; font-size: .8125rem; }
+  .endpoint {
+    background: var(--accent-soft); border: 1px solid var(--border);
+    border-radius: 8px; padding: 1rem 1.25rem; margin: 1.5rem 0;
+  }
+  .endpoint .label {
+    font-size: .75rem; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); margin-bottom: .25rem;
+  }
+  .endpoint .url {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 1.0625rem; font-weight: 600; color: var(--accent); word-break: break-all;
+  }
+  .notice {
+    background: var(--warn-bg); border: 1px solid var(--warn-border);
+    border-radius: 8px; padding: .9rem 1.15rem; margin: 1.25rem 0;
+  }
+  .notice strong { display: block; margin-bottom: .2rem; }
+  table { width: 100%; border-collapse: collapse; margin: .75rem 0; font-size: .9375rem; }
+  th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: .8125rem; }
+  a { color: var(--accent); }
+  footer {
+    margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
+    color: var(--muted); font-size: .875rem;
+  }
+  .todo { color: #b4691f; }
+  @media (prefers-color-scheme: dark) { .todo { color: #d9a05b; } }
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <h1>GQAI 법령조회 MCP</h1>
+  <p class="tagline">
+    법제처 국가법령정보 OPEN API 기반 원격 MCP 서버.
+    별도 인증키 발급 없이 AI 클라이언트에서 법령·판례를 바로 조회합니다.
+  </p>
+</header>
+
+<div class="endpoint">
+  <div class="label">MCP 연결 주소</div>
+  <div class="url">https://law.gqai.kr/mcp</div>
+</div>
+
+<h2>연결 방법</h2>
+
+<h3>Claude — 커넥터 추가</h3>
+<p>설정 → 커넥터 → 사용자 지정 커넥터 추가에서 위 주소를 입력합니다.</p>
+
+<h3>Cursor / Codex 등 — 설정 파일</h3>
+<pre><code>{
+  "mcpServers": {
+    "gqai-law": {
+      "url": "https://law.gqai.kr/mcp"
+    }
+  }
+}</code></pre>
+
+<p>
+  인증키 없이 사용할 수 있습니다. 직접 발급받은 법제처 인증키가 있다면
+  <code>apiKey</code> 헤더로 전달해 공용 한도와 무관하게 사용할 수 있습니다
+  (무료 발급: <a href="https://open.law.go.kr/" target="_blank" rel="noopener">open.law.go.kr</a>).
+</p>
+
+<h2>조회 범위</h2>
+<table>
+  <thead><tr><th>구분</th><th>내용</th></tr></thead>
+  <tbody>
+    <tr><td>법령</td><td>법률·시행령·시행규칙 조문 전문, 별표·서식</td></tr>
+    <tr><td>자치법규</td><td>지방자치단체 조례·규칙</td></tr>
+    <tr><td>행정규칙</td><td>훈령·예규·고시·지침</td></tr>
+    <tr><td>결정례</td><td>판례, 헌재 결정, 행정심판, 조세심판, 각종 위원회 의결</td></tr>
+    <tr><td>분석</td><td>인용 검증, 행위시법 판단, 개정 전후 비교, 시점별 조문 조회</td></tr>
+  </tbody>
+</table>
+
+<h3>질문 예시</h3>
+<ul>
+  <li>근로기준법에서 연차휴가를 규정한 조문을 보여줘</li>
+  <li>2020년 시점의 주택임대차보호법 제6조는 어떤 내용이었어?</li>
+  <li>광진구 주차장 설치 조례에서 부설주차장 기준을 찾아줘</li>
+  <li>전세사기 관련 최근 대법원 판례를 찾아줘</li>
+</ul>
+
+<div class="notice">
+  <strong>조회 결과는 참고용입니다</strong>
+  이 서비스는 법률 자문이 아니며, 조회·요약 과정에서 원문과 차이가 생길 수 있습니다.
+  법적 효력이 필요한 판단에는 반드시
+  <a href="https://www.law.go.kr/" target="_blank" rel="noopener">국가법령정보센터</a>
+  원문을 확인하세요.
+</div>
+
+<h2>이용 조건</h2>
+<ul>
+  <li>공용 인증키를 여러 사용자가 함께 쓰므로 <strong>분당·일일 조회 한도</strong>가 적용됩니다.
+      한도를 넘으면 잠시 후 재시도하라는 안내(HTTP 429)가 반환됩니다.</li>
+  <li>대량·자동 수집 용도의 호출은 제한될 수 있습니다. 지속적인 대량 조회가 필요하면
+      법제처에서 직접 인증키를 발급받아 사용하세요.</li>
+  <li>서비스는 예고 없이 점검·변경될 수 있습니다.</li>
+</ul>
+
+<h2>데이터 출처</h2>
+<p>
+  이 서비스가 반환하는 법령·판례·행정규칙·자치법규 본문은 전부
+  <a href="https://open.law.go.kr/" target="_blank" rel="noopener">법제처 국가법령정보센터 OPEN API</a>에서
+  조회한 것입니다. 데이터의 정확성·최신성은 원 제공처의 갱신 상태를 따릅니다.
+</p>
+
+<h2>개인정보 처리</h2>
+<ul>
+  <li>수집 항목: 접속 IP, 요청 시각, 요청 경로, User-Agent (서비스 운영·남용 방지 목적)</li>
+  <li>조회 질의 내용은 응답 생성에만 사용하며 별도로 저장하지 않습니다.</li>
+  <li>보관 기간: 배포 플랫폼(Vercel)의 로그 보존 정책에 따릅니다.</li>
+</ul>
+
+<h2>오픈소스 고지</h2>
+<p>
+  이 서비스는 광진구청 류승인 주무관이 공개한
+  <a href="https://github.com/chrisryugj/korean-law-mcp" target="_blank" rel="noopener">Korean Law MCP</a>
+  (MIT License)를 기반으로 구축했습니다. 원 저작자와 라이선스 고지를 유지합니다.
+</p>
+
+<h2>문의 및 오류 제보</h2>
+<p class="todo">
+  ※ 배포 전 실제 제보 경로(이메일 또는 이슈 트래커 주소)로 교체하세요.
+</p>
+
+<footer>
+  GQAI · 데이터 출처: 법제처 국가법령정보센터 OPEN API ·
+  서버 상태: <a href="/health">/health</a>
+</footer>
+
+</main>
+</body>
+</html>

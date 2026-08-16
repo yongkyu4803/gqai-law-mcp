@@ -1,0 +1,29 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "installCommand": "npm install",
+  "outputDirectory": "public",
+  "regions": ["icn1"],
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 120,
+      "memory": 1024
+    },
+    "api/synthetic.ts": {
+      "maxDuration": 60,
+      "memory": 512
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/synthetic",
+      "schedule": "0 * * * *"
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/api"
+    }
+  ]
+}

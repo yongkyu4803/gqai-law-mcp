@@ -16,3 +16,8 @@ test-results-*.txt
 .claude/plans/
 promo-video/
 *.tgz
+
+# ── GQAI 추가 ──
+.vercel/
+.env*.local
+!.env.example
