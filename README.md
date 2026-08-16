@@ -5,7 +5,11 @@
 
 - **기반**: [chrisryugj/korean-law-mcp](https://github.com/chrisryugj/korean-law-mcp) v4.10.0 포크 (MIT)
 - **실행**: Vercel Node.js Function, 서울 리전(icn1), Stateless Streamable HTTP
-- **계획서**: [`GQAI_법령조회_MCP_구축_계획서.md`](./GQAI_법령조회_MCP_구축_계획서.md) v1.1
+
+> 소스 주석과 아래 문서에 나오는 "계획서 N절"은 이 저장소에 포함하지 않은
+> 내부 구축 계획서(v1.1)를 가리킨다. 설계 판단의 근거는 각 파일 상단 주석과
+> 이 README의 [방어 구조](#방어-구조) 절에 그대로 옮겨 두었으므로,
+> 계획서 없이도 코드를 읽는 데 지장이 없다.
 
 ---
 
