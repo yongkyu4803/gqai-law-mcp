@@ -1,0 +1,94 @@
+{
+  "name": "korean-law-mcp",
+  "version": "4.10.0",
+  "description": "법제처 42개 API → 9개 MCP 도구. 법령·판례·조례·조약 + 다단계 리서치(legal_research, 8 task) + 정밀분석(legal_analysis: 인용검증·판례생사·행위시법·영향그래프) + 시점 비교(time_travel) + 상황별 5단계 안내(action_plan) + 국세청 해석례(nts)",
+  "type": "module",
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./build/index.d.ts",
+      "import": "./build/index.js"
+    },
+    "./lib/*": {
+      "types": "./build/lib/*.d.ts",
+      "import": "./build/lib/*.js"
+    },
+    "./tools/*": {
+      "types": "./build/tools/*.d.ts",
+      "import": "./build/tools/*.js"
+    },
+    "./server/*": {
+      "types": "./build/server/*.d.ts",
+      "import": "./build/server/*.js"
+    }
+  },
+  "bin": {
+    "korean-law-mcp": "build/index.js",
+    "korean-law": "build/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "start": "node build/index.js",
+    "cli": "node build/cli.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "dead-code": "knip",
+    "gc": "npm run typecheck && npm run dead-code && npm test && npm run build",
+    "prepublishOnly": "npm run build",
+    "prepare": "husky"
+  },
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "korean-law",
+    "법령",
+    "판례",
+    "법제처",
+    "claude",
+    "model-context-protocol",
+    "legal-ai",
+    "cli"
+  ],
+  "author": "Chris",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@xmldom/xmldom": "^0.9.8",
+    "commander": "^14.0.3",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "kordoc": "^4.7.2",
+    "pdfjs-dist": "^5.5.207",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.19.3",
+    "husky": "^9.1.7",
+    "knip": "^6.24.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.9"
+  },
+  "overrides": {
+    "hono": "^4.12.29",
+    "sharp": "^0.35.3",
+    "adm-zip": "^0.6.0",
+    "onnxruntime-node": "^1.27.0"
+  },
+  "files": [
+    "build",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chrisryugj/korean-law-mcp.git"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}

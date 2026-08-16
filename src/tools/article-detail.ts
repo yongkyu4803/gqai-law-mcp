@@ -1,0 +1,158 @@
+/**
+ * get_article_detail Tool - 조항호목 단위 정밀 조회
+ */
+
+import { z } from "zod"
+import type { LawApiClient } from "../lib/api-client.js"
+import { truncateResponse } from "../lib/schemas.js"
+import { buildJO } from "../lib/law-parser.js"
+import { cleanHtml, flattenContent, groupMokByReset } from "../lib/article-parser.js"
+import { formatToolError } from "../lib/errors.js"
+import { toArray } from "../lib/xml-parser.js"
+
+export const GetArticleDetailSchema = z.object({
+  mst: z.string().optional().describe("법령일련번호 (search_law에서 획득)"),
+  lawId: z.string().optional().describe("법령ID (search_law에서 획득)"),
+  jo: z.string().describe("조문 번호 (예: '제38조' 또는 '003800')"),
+  hang: z.string().optional().describe("항 번호 (예: '2')"),
+  ho: z.string().optional().describe("호 번호 (예: '3')"),
+  mok: z.string().optional().describe("목 번호 (예: '1')"),
+  apiKey: z.string().optional().describe("법제처 Open API 인증키(OC). 사용자가 제공한 경우 전달")
+}).refine(data => data.mst || data.lawId, {
+  message: "mst 또는 lawId 중 하나는 필수입니다"
+})
+
+export type GetArticleDetailInput = z.infer<typeof GetArticleDetailSchema>
+
+export async function getArticleDetail(
+  apiClient: LawApiClient,
+  input: GetArticleDetailInput
+): Promise<{ content: Array<{ type: string, text: string }>, isError?: boolean }> {
+  try {
+    // 조문 번호가 한글이면 JO 코드로 변환
+    let joCode = input.jo
+    if (/제\d+조/.test(joCode)) {
+      joCode = buildJO(joCode)
+    }
+
+    const extraParams: Record<string, string> = {}
+    if (input.mst) extraParams.MST = String(input.mst)
+    if (input.lawId) extraParams.ID = String(input.lawId)
+    extraParams.JO = String(joCode)
+    if (input.hang) extraParams.HANG = String(input.hang)
+    if (input.ho) extraParams.HO = String(input.ho)
+    if (input.mok) extraParams.MOK = String(input.mok)
+
+    const jsonText = await apiClient.fetchApi({
+      endpoint: "lawService.do",
+      target: "eflaw",
+      type: "JSON",
+      extraParams,
+      apiKey: input.apiKey
+    })
+
+    const json = JSON.parse(jsonText)
+    const lawData = json?.법령
+
+    if (!lawData) {
+      return {
+        content: [{ type: "text", text: "[NOT_FOUND] 법령 데이터를 찾을 수 없습니다.\n⚠️ LLM은 조문을 추측하지 마세요." }],
+        isError: true
+      }
+    }
+
+    const basicInfo = lawData.기본정보 || lawData
+    const lawName = basicInfo?.법령명_한글 || basicInfo?.법령명한글 || basicInfo?.법령명 || "알 수 없음"
+
+    // 조회 위치 표시
+    let locationLabel = `제${input.jo.replace(/^제/, "").replace(/조$/, "")}조`
+    if (/^\d{4,6}$/.test(input.jo)) locationLabel = `JO=${input.jo}`
+    if (input.hang) locationLabel += ` 제${input.hang}항`
+    if (input.ho) locationLabel += ` 제${input.ho}호`
+    if (input.mok) locationLabel += ` ${input.mok}목`
+
+    let resultText = `법령명: ${lawName}\n`
+    resultText += `조회 위치: ${locationLabel}\n\n`
+
+    // 조문 추출
+    const rawUnits = lawData.조문?.조문단위
+    const articleUnits: any[] = toArray(rawUnits)
+
+    if (articleUnits.length === 0) {
+      return {
+        content: [{ type: "text", text: resultText + "[NOT_FOUND] 해당 조문을 찾을 수 없습니다.\n⚠️ LLM은 조문 내용을 추측/생성하지 마세요." }],
+        isError: true
+      }
+    }
+
+    for (const unit of articleUnits) {
+      if (unit.조문여부 !== "조문") continue
+
+      const joNum = unit.조문번호 || ""
+      const joBranch = unit.조문가지번호 || ""
+      const joTitle = unit.조문제목 || ""
+      const displayNum = joBranch && joBranch !== "0" ? `제${joNum}조의${joBranch}` : `제${joNum}조`
+
+      resultText += `${displayNum}`
+      if (joTitle) resultText += ` ${joTitle}`
+      resultText += `\n`
+
+      // 조문내용 — JSON API는 문자열 또는 (중첩)배열로 반환한다.
+      // String(배열)은 콤마로 뭉개지고 중첩 항목은 [object Object]가 되어
+      // 같은 조문을 get_law_text와 다르게(훼손된 채) 출력하던 결함.
+      // 형제 도구들처럼 flattenContent로 평탄화한다.
+      if (unit.조문내용) {
+        const content = flattenContent(unit.조문내용)
+        if (content) resultText += `${cleanHtml(content)}\n`
+      }
+
+      // 항 내용 — 항내용/호내용/목내용도 조문내용과 같이 (중첩)배열로 올 수 있어 flattenContent 필수
+      if (unit.항) {
+        const hangList = Array.isArray(unit.항) ? unit.항 : [unit.항]
+        const renderMok = (mokList: any[]) => {
+          for (const mok of mokList) {
+            const mokContent = flattenContent(mok.목내용)
+            if (mokContent) resultText += `      ${mok.목번호 || ""} ${cleanHtml(mokContent)}\n`
+          }
+        }
+        for (const hang of hangList) {
+          const hangNum = hang.항번호 || ""
+          const hangContent = flattenContent(hang.항내용)
+          if (hangContent) {
+            resultText += `  ${hangNum ? `(${hangNum})` : ""} ${cleanHtml(hangContent)}\n`
+          }
+
+          const hoList = hang.호 ? (Array.isArray(hang.호) ? hang.호 : [hang.호]) : []
+          // 법제처 JSON은 목을 호가 아닌 항 레벨 형제 배열로 준다 (article-parser.groupMokByReset 참조)
+          const hangMokList = hang.목 ? (Array.isArray(hang.목) ? hang.목 : [hang.목]) : []
+          const mokGroups = groupMokByReset(hangMokList)
+          const alignable = hoList.length > 0 && mokGroups.length === hoList.length
+
+          for (let i = 0; i < hoList.length; i++) {
+            const ho = hoList[i]
+            const hoContent = flattenContent(ho.호내용)
+            if (hoContent) {
+              resultText += `    ${ho.호번호 || ""} ${cleanHtml(hoContent)}\n`
+            }
+
+            if (ho.목) renderMok(Array.isArray(ho.목) ? ho.목 : [ho.목])
+            if (alignable) renderMok(mokGroups[i])
+          }
+
+          if (!alignable && hangMokList.length > 0) {
+            resultText += `  [참고] 아래 목은 위 각 호의 세부 항목이나 API 응답 구조상 소속 호를 특정할 수 없어 일괄 표시합니다.\n`
+            renderMok(hangMokList)
+          }
+        }
+      }
+
+      resultText += `\n`
+    }
+
+    return {
+      content: [{ type: "text", text: truncateResponse(resultText) }]
+    }
+  } catch (error) {
+    return formatToolError(error, "get_article_detail")
+  }
+}
