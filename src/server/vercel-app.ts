@@ -23,7 +23,8 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { requestContext } from "../lib/session-state.js"
 import { maskSensitiveUrl } from "../lib/fetch-with-retry.js"
 import { LawApiClient } from "../lib/api-client.js"
-import { registerTools, TOOL_COUNTS } from "../tool-registry.js"
+import { TOOL_COUNTS } from "../tool-registry.js"
+import { registerAllTools, GQAI_TOOL_COUNT } from "../lib/gqai-tools.js"
 import { VERSION } from "../version.js"
 import { createGlobalLimiter, createIpLimiter, limiterStats, dailyUsage } from "../lib/global-rate-limit.js"
 import { installLawCache, cacheStats, cacheEnabled } from "../lib/law-cache.js"
@@ -66,7 +67,7 @@ function createMcpServer(): Server {
     { name: SERVICE_NAME, version: VERSION },
     { capabilities: { tools: {} } }
   )
-  registerTools(s, apiClient)
+  registerAllTools(s, apiClient)
   return s
 }
 
@@ -246,7 +247,11 @@ export function createApp(): express.Express {
       status: "running",
       transport: "streamable-http (stateless)",
       endpoints: { mcp: "/mcp", health: "/health" },
-      tools: { exposed: TOOL_COUNTS.exposed, total: TOOL_COUNTS.total },
+      tools: {
+        exposed: TOOL_COUNTS.exposed + GQAI_TOOL_COUNT,
+        total: TOOL_COUNTS.total + GQAI_TOOL_COUNT,
+        gqaiAdded: GQAI_TOOL_COUNT,
+      },
       notice: "조회 결과는 참고용입니다. 법적 효력이 필요한 판단은 국가법령정보센터 원문을 확인하세요.",
       source: "법제처 국가법령정보센터 OPEN API (https://open.law.go.kr/)",
     })

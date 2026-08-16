@@ -24,7 +24,7 @@ const TTL_LAW = parseInt(process.env.CACHE_TTL_LAW || "86400", 10)
 /** 검색 결과 TTL (초). 신규 제·개정 반영 지연을 감안해 짧게 잡는다. */
 const TTL_SEARCH = parseInt(process.env.CACHE_TTL_SEARCH || "3600", 10)
 /** 캐시에 담을 응답 본문 상한 (바이트). 초과분은 저장 비용 대비 실익이 낮다. */
-const MAX_BYTES = parseInt(process.env.CACHE_MAX_BYTES || "524288", 10)
+const MAX_BYTES = parseInt(process.env.CACHE_MAX_BYTES || "2097152", 10)
 
 /**
  * 적중 통계.

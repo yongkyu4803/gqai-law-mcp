@@ -50,7 +50,11 @@ describe("isCacheable", () => {
   })
 
   it("상한을 넘는 큰 응답은 캐시하지 않는다", () => {
-    expect(isCacheable("{" + "x".repeat(600_000) + "}")).toBe(false)
+    // 상한은 2MB. 행정규칙 전문이 1.6MB급이라(금융투자업규정 실측) 그보다
+    // 낮게 잡으면 가장 무거운 문서가 매번 법제처를 새로 부르게 된다 —
+    // 캐시가 필요한 순서와 정반대가 되므로 여유를 두고 잡았다.
+    expect(isCacheable("{" + "x".repeat(1_600_000) + "}")).toBe(true)
+    expect(isCacheable("{" + "x".repeat(2_200_000) + "}")).toBe(false)
   })
 })
 
