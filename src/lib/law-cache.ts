@@ -42,8 +42,17 @@ const localStats = { lookup: 0, miss: 0, store: 0, skip: 0, error: 0 }
 /** 카운터 보존 기간 — 1~2주 관측 창을 덮고도 남게 */
 const STATS_TTL_SEC = 60 * 60 * 24 * 30
 
+/**
+ * 통계 키에 스키마 버전을 박는다.
+ *
+ * 카운터 구성을 바꾸면(예: hit 직접 집계 → lookup−miss 유도) 같은 날짜 키에
+ * 옛 필드와 새 필드가 섞여 파생값이 음수가 되는 등 조용히 틀린 지표가 나온다.
+ * 버전을 올리면 그 순간부터 깨끗한 키에 쌓이고 옛 키는 TTL로 알아서 사라진다.
+ */
+const STATS_SCHEMA = "v2"
+
 function statsKey(): string {
-  return `${PREFIX}:stats:${kstDayKey()}`
+  return `${PREFIX}:stats:${STATS_SCHEMA}:${kstDayKey()}`
 }
 
 /**

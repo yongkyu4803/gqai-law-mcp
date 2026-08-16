@@ -171,6 +171,6 @@ describe("저장 보장", () => {
 
     expect(store.size).toBe(0)
     expect(sentCommands.some((c) => c[0] === "SET")).toBe(false)
-    expect(hashes.get("gqai:law:stats:2026-01-01")?.skip).toBe(1)
+    expect(hashes.get("gqai:law:stats:v2:2026-01-01")?.skip).toBe(1)
   })
 })
