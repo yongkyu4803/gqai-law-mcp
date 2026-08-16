@@ -63,8 +63,11 @@ async function main() {
 
   console.log("\n[캐시] — 쿼터 보호 1차 방어선")
   const c = h.cache ?? {}
+  // scope=instance면 그 인스턴스가 본 것만이라 운영 지표로 읽으면 안 된다
+  line("집계 범위", c.scope ?? "?", c.scope === "global" ? `(${c.day ?? ""} KST 전체)` : "⚠️ 인스턴스 한정")
   line("적중률", c.hitRate === null || c.hitRate === undefined ? "표본 없음" : `${(c.hitRate * 100).toFixed(1)}%`)
   line("hit / miss", `${c.hit ?? 0} / ${c.miss ?? 0}`)
+  line("아낀 법제처 호출", c.savedUpstreamCalls ?? c.hit ?? 0, "건")
   line("저장 / 제외", `${c.store ?? 0} / ${c.skip ?? 0}`, c.skip > 0 ? "(제외=비정상 응답 차단)" : "")
   line("저장소 오류", c.error ?? 0, c.error > 0 ? "⚠️ 저장소 상태 확인" : "")
 

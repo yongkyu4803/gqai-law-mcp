@@ -15,7 +15,7 @@
  *   노출해 /health에서 관측할 수 있게 한다.
  */
 
-import { kvConfigured, kvEval, kvIncrBy, KvError } from "./kv-store.js"
+import { kvConfigured, kvEval, kvIncrBy, kstDayKey, KvError } from "./kv-store.js"
 import { createTokenBucket, createDailyCap, type Verdict } from "./rate-limit.js"
 
 /** 원자적 토큰버킷 — HMGET/계산/HSET을 한 번의 EVAL로 묶는다 */
@@ -92,15 +92,6 @@ export function limiterStats() {
 function noteDegraded() {
   degradedCount++
   lastDegradedAt = Date.now()
-}
-
-/**
- * KST 기준 달력일 키. 롤링 24시간 대신 달력일을 쓰는 이유는 운영 해석이
- * 단순하기 때문이다 — "오늘 몇 건 썼나"가 법제처 일일 쿼터와 바로 대응된다.
- */
-function kstDayKey(now = Date.now()): string {
-  const kst = new Date(now + 9 * 60 * 60 * 1000)
-  return kst.toISOString().slice(0, 10)
 }
 
 /** 남은 KST 당일 초 (캡 키 TTL·Retry-After 산출용) */

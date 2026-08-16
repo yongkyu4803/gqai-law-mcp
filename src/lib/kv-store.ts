@@ -98,6 +98,66 @@ export async function kvEval(
   return command(["EVAL", script, keys.length, ...keys, ...args])
 }
 
+/**
+ * 여러 명령을 한 번의 HTTP 왕복으로 실행.
+ * 카운터 증가처럼 "증가 + 만료설정"이 늘 짝으로 가는 연산에 쓴다 —
+ * 나눠 보내면 왕복이 두 배가 되고, 그 사이 인스턴스가 얼어붙으면 만료가 안 걸린다.
+ */
+export async function kvPipeline(commands: (string | number)[][]): Promise<unknown[]> {
+  if (!kvConfigured()) throw new KvError("KV not configured")
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), KV_TIMEOUT_MS)
+  try {
+    const res = await fetch(`${REST_URL}/pipeline`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${REST_TOKEN}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(commands.map((c) => c.map(String))),
+      signal: controller.signal,
+    })
+    if (!res.ok) throw new KvError(`KV HTTP ${res.status}`)
+    const json = (await res.json()) as { result?: unknown; error?: string }[]
+    return json.map((r) => {
+      if (r.error) throw new KvError(`KV error: ${r.error}`)
+      return r.result
+    })
+  } catch (e) {
+    if (e instanceof KvError) throw e
+    throw new KvError(e instanceof Error ? e.message : String(e))
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** 해시 전체 조회. 카운터 여러 개를 한 번의 왕복으로 읽는다. */
+export async function kvHGetAll(key: string): Promise<Record<string, string>> {
+  const r = await command(["HGETALL", key])
+  // Upstash는 버전에 따라 평탄 배열 [f1,v1,f2,v2] 또는 객체를 돌려준다
+  if (Array.isArray(r)) {
+    const out: Record<string, string> = {}
+    for (let i = 0; i + 1 < r.length; i += 2) out[String(r[i])] = String(r[i + 1])
+    return out
+  }
+  if (r && typeof r === "object") {
+    return Object.fromEntries(
+      Object.entries(r as Record<string, unknown>).map(([k, v]) => [k, String(v)])
+    )
+  }
+  return {}
+}
+
+/**
+ * KST 기준 달력일 키.
+ * 롤링 24시간 대신 달력일을 쓰는 이유는 운영 해석이 단순하기 때문이다 —
+ * "오늘 몇 건"이 법제처 일일 쿼터와 바로 대응된다.
+ */
+export function kstDayKey(now = Date.now()): string {
+  return new Date(now + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+}
+
 /** 저장소 왕복 확인 (헬스체크용) */
 export async function kvPing(): Promise<boolean> {
   try {

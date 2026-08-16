@@ -15,7 +15,7 @@
  */
 
 import { createHash } from "node:crypto"
-import { kvConfigured, kvGet, kvSet, KvError } from "./kv-store.js"
+import { kvConfigured, kvGet, kvSet, kvPipeline, kvHGetAll, kstDayKey, KvError } from "./kv-store.js"
 
 const PREFIX = process.env.CACHE_PREFIX || "gqai:law"
 
@@ -26,14 +26,85 @@ const TTL_SEARCH = parseInt(process.env.CACHE_TTL_SEARCH || "3600", 10)
 /** 캐시에 담을 응답 본문 상한 (바이트). 초과분은 저장 비용 대비 실익이 낮다. */
 const MAX_BYTES = parseInt(process.env.CACHE_MAX_BYTES || "524288", 10)
 
-const stats = { hit: 0, miss: 0, store: 0, skip: 0, error: 0 }
-export function cacheStats() {
-  const total = stats.hit + stats.miss
-  return {
-    ...stats,
+/**
+ * 적중 통계.
+ *
+ * 인스턴스 로컬 카운터만으로는 적중률을 알 수 없다. Vercel Function은 요청마다
+ * 다른 인스턴스에서 실행될 수 있어, /health가 응답하는 카운터는 '그 인스턴스가
+ * 살아 있는 동안 그 인스턴스가 본 것'뿐이다. 콜드스타트마다 0으로 돌아가고
+ * 실제 트래픽의 일부만 반영하므로 운영 지표로 쓸 수 없다(첫 배포 검증에서 드러남).
+ * 그래서 전역 카운터를 Redis 해시에 둔다 — 일자별 키 하나에 필드로 쌓아
+ * 읽을 때 HGETALL 한 번이면 된다.
+ */
+type StatKind = "hit" | "miss" | "store" | "skip" | "error"
+const localStats = { hit: 0, miss: 0, store: 0, skip: 0, error: 0 }
+
+/** 카운터 보존 기간 — 1~2주 관측 창을 덮고도 남게 */
+const STATS_TTL_SEC = 60 * 60 * 24 * 30
+
+function statsKey(): string {
+  return `${PREFIX}:stats:${kstDayKey()}`
+}
+
+/**
+ * 카운터 1 증가. 인스턴스 로컬은 즉시, 전역은 백그라운드로 —
+ * 통계 기록이 사용자 요청을 붙잡으면 안 된다.
+ * HINCRBY와 EXPIRE를 파이프라인으로 묶어 왕복을 한 번으로 유지한다.
+ */
+function bump(kind: StatKind): void {
+  localStats[kind]++
+  if (!kvConfigured()) return
+  const key = statsKey()
+  kvPipeline([
+    ["HINCRBY", key, kind, 1],
+    ["EXPIRE", key, STATS_TTL_SEC],
+  ]).catch(() => {
+    /* 통계 유실은 서비스에 영향 없음 — 조용히 넘긴다 */
+  })
+}
+
+export async function cacheStats(): Promise<Record<string, unknown>> {
+  const base = {
     enabled: cacheEnabled(),
     backend: kvConfigured() ? "redis" : "disabled",
-    hitRate: total > 0 ? Number((stats.hit / total).toFixed(3)) : null,
+  }
+
+  if (!kvConfigured()) {
+    const total = localStats.hit + localStats.miss
+    return {
+      ...base,
+      scope: "instance",
+      ...localStats,
+      hitRate: total > 0 ? Number((localStats.hit / total).toFixed(3)) : null,
+    }
+  }
+
+  try {
+    const h = await kvHGetAll(statsKey())
+    const n = (k: string) => Number(h[k] || 0)
+    const hit = n("hit")
+    const miss = n("miss")
+    const total = hit + miss
+    return {
+      ...base,
+      scope: "global",       // 전 인스턴스 합산 — 운영 지표로 쓸 수 있는 값
+      day: kstDayKey(),
+      hit, miss,
+      store: n("store"),
+      skip: n("skip"),
+      error: n("error"),
+      hitRate: total > 0 ? Number((hit / total).toFixed(3)) : null,
+      // 캐시로 아낀 법제처 호출 수 = 적중 수 (계획서 11.1절 지표)
+      savedUpstreamCalls: hit,
+    }
+  } catch {
+    const total = localStats.hit + localStats.miss
+    return {
+      ...base,
+      scope: "instance (전역 조회 실패)",
+      ...localStats,
+      hitRate: total > 0 ? Number((localStats.hit / total).toFixed(3)) : null,
+    }
   }
 }
 
@@ -141,7 +212,7 @@ export function installLawCache(): void {
     try {
       const cached = await kvGet(key)
       if (cached !== null) {
-        stats.hit++
+        bump("hit")
         return new Response(cached, {
           status: 200,
           headers: {
@@ -150,10 +221,10 @@ export function installLawCache(): void {
           },
         })
       }
-      stats.miss++
+      bump("miss")
     } catch (e) {
       // 캐시 조회 실패가 본 요청을 막으면 안 된다 — 원본으로 진행
-      stats.error++
+      bump("error")
       if (e instanceof KvError) console.error(`[cache] 조회 실패(통과): ${e.message}`)
     }
 
@@ -171,15 +242,15 @@ export function installLawCache(): void {
     }
 
     if (!isCacheable(body)) {
-      stats.skip++
+      bump("skip")
       return response
     }
 
     // 저장은 응답을 붙잡지 않도록 백그라운드로 — 실패해도 사용자 요청엔 영향 없음
     kvSet(key, body, ttlFor(url))
-      .then(() => { stats.store++ })
+      .then(() => { bump("store") })
       .catch((e) => {
-        stats.error++
+        bump("error")
         if (e instanceof KvError) console.error(`[cache] 저장 실패: ${e.message}`)
       })
 

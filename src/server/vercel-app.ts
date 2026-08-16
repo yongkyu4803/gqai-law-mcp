@@ -255,7 +255,10 @@ export function createApp(): express.Express {
   app.get("/health", async (_req, res) => {
     // 운영 판단에 필요한 상태를 한 번에 노출 — 비밀정보는 담지 않는다.
     // synthetic은 저장소 왕복이 필요하므로 실패해도 헬스체크는 계속 응답한다.
-    const synthetic = await syntheticStats().catch(() => null)
+    const [cache, synthetic] = await Promise.all([
+      cacheStats().catch(() => null),
+      syntheticStats().catch(() => null),
+    ])
     res.json({
       status: "ok",
       timestamp: new Date().toISOString(),
@@ -276,7 +279,7 @@ export function createApp(): express.Express {
         ipRpm: parseInt(process.env.RATE_LIMIT_RPM || "120", 10),
         maxBatchCalls: parseInt(process.env.MCP_MAX_BATCH_CALLS || "20", 10),
       },
-      cache: cacheStats(),
+      cache,
       limiter: limiterStats(),
       synthetic,
     })

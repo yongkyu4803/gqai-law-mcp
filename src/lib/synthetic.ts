@@ -13,7 +13,7 @@
 
 import { bypassFetch } from "./law-cache.js"
 import { getLawApiBaseUrl } from "./law-url-config.js"
-import { kvConfigured, kvGet, kvSet, kvIncrBy } from "./kv-store.js"
+import { kvConfigured, kvGet, kvSet, kvIncrBy, kstDayKey } from "./kv-store.js"
 import { maskSensitiveUrl } from "./fetch-with-retry.js"
 
 const PREFIX = process.env.SYNTHETIC_PREFIX || "gqai:synthetic"
@@ -32,10 +32,6 @@ export interface SyntheticReport {
   timestamp: string
   region: string | null
   probes: ProbeResult[]
-}
-
-function kstDay(now = Date.now()): string {
-  return new Date(now + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
 }
 
 /**
@@ -150,7 +146,7 @@ export async function runSynthetic(): Promise<SyntheticReport> {
 async function record(report: SyntheticReport): Promise<void> {
   if (!kvConfigured()) return
   try {
-    const day = kstDay()
+    const day = kstDayKey()
     await kvIncrBy(`${PREFIX}:${day}:${report.ok ? "ok" : "fail"}`, 1, COUNTER_TTL_SEC)
     await kvSet(`${PREFIX}:last`, JSON.stringify(report), COUNTER_TTL_SEC)
     if (!report.ok) {
@@ -165,7 +161,7 @@ async function record(report: SyntheticReport): Promise<void> {
 export async function syntheticStats(): Promise<Record<string, unknown> | null> {
   if (!kvConfigured()) return null
   try {
-    const day = kstDay()
+    const day = kstDayKey()
     const [okRaw, failRaw, last, lastFail] = await Promise.all([
       kvGet(`${PREFIX}:${day}:ok`),
       kvGet(`${PREFIX}:${day}:fail`),
