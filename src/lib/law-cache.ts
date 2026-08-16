@@ -15,7 +15,7 @@
  */
 
 import { createHash } from "node:crypto"
-import { kvConfigured, kvGet, kvSet, kvPipeline, kvHGetAll, kstDayKey, KvError } from "./kv-store.js"
+import { kvConfigured, kvPipeline, kvHGetAll, kstDayKey, KvError } from "./kv-store.js"
 
 const PREFIX = process.env.CACHE_PREFIX || "gqai:law"
 
@@ -36,8 +36,8 @@ const MAX_BYTES = parseInt(process.env.CACHE_MAX_BYTES || "524288", 10)
  * 그래서 전역 카운터를 Redis 해시에 둔다 — 일자별 키 하나에 필드로 쌓아
  * 읽을 때 HGETALL 한 번이면 된다.
  */
-type StatKind = "hit" | "miss" | "store" | "skip" | "error"
-const localStats = { hit: 0, miss: 0, store: 0, skip: 0, error: 0 }
+type StatKind = "lookup" | "miss" | "store" | "skip" | "error"
+const localStats = { lookup: 0, miss: 0, store: 0, skip: 0, error: 0 }
 
 /** 카운터 보존 기간 — 1~2주 관측 창을 덮고도 남게 */
 const STATS_TTL_SEC = 60 * 60 * 24 * 30
@@ -47,20 +47,23 @@ function statsKey(): string {
 }
 
 /**
- * 카운터 1 증가. 인스턴스 로컬은 즉시, 전역은 백그라운드로 —
- * 통계 기록이 사용자 요청을 붙잡으면 안 된다.
- * HINCRBY와 EXPIRE를 파이프라인으로 묶어 왕복을 한 번으로 유지한다.
+ * 카운터 증가 명령을 만든다. 실제 전송은 호출부가 다른 명령과 묶어 처리한다 —
+ * 통계 때문에 왕복을 따로 내지 않기 위해서다.
+ *
+ * 적중(hit)을 직접 세지 않고 lookup − miss로 유도하는 이유:
+ * 적중 경로는 왕복이 한 번뿐이라(GET) 여기에 카운터 전송을 더하면 가장 빠른
+ * 경로가 두 배로 느려진다. lookup은 GET과 같은 파이프라인에 실어 공짜로 세고,
+ * miss는 어차피 법제처 왕복(1~3초)이 뒤따르는 경로라 한 번 더 묶어도 무해하다.
  */
-function bump(kind: StatKind): void {
-  localStats[kind]++
-  if (!kvConfigured()) return
+function statCmds(...kinds: StatKind[]): (string | number)[][] {
   const key = statsKey()
-  kvPipeline([
-    ["HINCRBY", key, kind, 1],
-    ["EXPIRE", key, STATS_TTL_SEC],
-  ]).catch(() => {
-    /* 통계 유실은 서비스에 영향 없음 — 조용히 넘긴다 */
-  })
+  const cmds: (string | number)[][] = []
+  for (const k of kinds) {
+    localStats[k]++
+    cmds.push(["HINCRBY", key, k, 1])
+  }
+  cmds.push(["EXPIRE", key, STATS_TTL_SEC])
+  return cmds
 }
 
 export async function cacheStats(): Promise<Record<string, unknown>> {
@@ -69,42 +72,37 @@ export async function cacheStats(): Promise<Record<string, unknown>> {
     backend: kvConfigured() ? "redis" : "disabled",
   }
 
-  if (!kvConfigured()) {
-    const total = localStats.hit + localStats.miss
+  /** 적중은 직접 세지 않고 조회−미스로 유도한다 (statCmds 주석 참고) */
+  const shape = (c: typeof localStats, scope: string, day?: string) => {
+    const hit = Math.max(0, c.lookup - c.miss)
     return {
       ...base,
-      scope: "instance",
-      ...localStats,
-      hitRate: total > 0 ? Number((localStats.hit / total).toFixed(3)) : null,
+      scope,
+      ...(day ? { day } : {}),
+      lookup: c.lookup,
+      hit,
+      miss: c.miss,
+      store: c.store,
+      skip: c.skip,
+      error: c.error,
+      hitRate: c.lookup > 0 ? Number((hit / c.lookup).toFixed(3)) : null,
+      // 캐시로 아낀 법제처 호출 수 (계획서 11.1절 지표)
+      savedUpstreamCalls: hit,
     }
   }
+
+  if (!kvConfigured()) return shape(localStats, "instance")
 
   try {
     const h = await kvHGetAll(statsKey())
     const n = (k: string) => Number(h[k] || 0)
-    const hit = n("hit")
-    const miss = n("miss")
-    const total = hit + miss
-    return {
-      ...base,
-      scope: "global",       // 전 인스턴스 합산 — 운영 지표로 쓸 수 있는 값
-      day: kstDayKey(),
-      hit, miss,
-      store: n("store"),
-      skip: n("skip"),
-      error: n("error"),
-      hitRate: total > 0 ? Number((hit / total).toFixed(3)) : null,
-      // 캐시로 아낀 법제처 호출 수 = 적중 수 (계획서 11.1절 지표)
-      savedUpstreamCalls: hit,
-    }
+    return shape(
+      { lookup: n("lookup"), miss: n("miss"), store: n("store"), skip: n("skip"), error: n("error") },
+      "global", // 전 인스턴스 합산 — 운영 지표로 쓸 수 있는 값
+      kstDayKey()
+    )
   } catch {
-    const total = localStats.hit + localStats.miss
-    return {
-      ...base,
-      scope: "instance (전역 조회 실패)",
-      ...localStats,
-      hitRate: total > 0 ? Number((localStats.hit / total).toFixed(3)) : null,
-    }
+    return shape(localStats, "instance (전역 조회 실패)")
   }
 }
 
@@ -209,10 +207,12 @@ export function installLawCache(): void {
     if (!key) return originalFetch(input, init)
 
     // ── 조회 ──
+    // GET과 lookup 카운터를 한 파이프라인에 실어 왕복을 늘리지 않는다.
+    // 적중 경로는 이 왕복 하나가 전부라 여기에 무엇을 더하면 그대로 체감된다.
+    let lookupFailed = false
     try {
-      const cached = await kvGet(key)
-      if (cached !== null) {
-        bump("hit")
+      const [cached] = await kvPipeline([["GET", key], ...statCmds("lookup")])
+      if (typeof cached === "string") {
         return new Response(cached, {
           status: 200,
           headers: {
@@ -221,10 +221,10 @@ export function installLawCache(): void {
           },
         })
       }
-      bump("miss")
     } catch (e) {
-      // 캐시 조회 실패가 본 요청을 막으면 안 된다 — 원본으로 진행
-      bump("error")
+      // 캐시 조회 실패가 본 요청을 막으면 안 된다 — 원본으로 진행하고
+      // 실패 사실은 아래 저장 왕복에 실어 보낸다
+      lookupFailed = true
       if (e instanceof KvError) console.error(`[cache] 조회 실패(통과): ${e.message}`)
     }
 
@@ -241,18 +241,25 @@ export function installLawCache(): void {
       return response
     }
 
-    if (!isCacheable(body)) {
-      bump("skip")
-      return response
+    // 저장을 반드시 await 한다.
+    //
+    // 백그라운드로 던지면 Vercel이 응답 직후 함수를 얼려 저장이 통째로 유실될 수
+    // 있다(첫 운영 검증에서 카운터가 전혀 오르지 않는 요청으로 실측됨). 캐시 저장이
+    // 새면 그만큼 법제처 쿼터 방어가 무너지므로, 캐시 계층에서 가장 지켜야 할
+    // 보장이다. 이 경로는 이미 법제처 왕복(1~3초)을 치른 뒤라 Redis 왕복
+    // 한 번(수십 ms)은 사용자에게 체감되지 않는다.
+    const cacheable = isCacheable(body)
+    const kinds: StatKind[] = ["miss", cacheable ? "store" : "skip"]
+    if (lookupFailed) kinds.push("error")
+    try {
+      await kvPipeline(
+        cacheable
+          ? [["SET", key, body, "EX", ttlFor(url)], ...statCmds(...kinds)]
+          : statCmds(...kinds)
+      )
+    } catch (e) {
+      if (e instanceof KvError) console.error(`[cache] 저장 실패: ${e.message}`)
     }
-
-    // 저장은 응답을 붙잡지 않도록 백그라운드로 — 실패해도 사용자 요청엔 영향 없음
-    kvSet(key, body, ttlFor(url))
-      .then(() => { bump("store") })
-      .catch((e) => {
-        bump("error")
-        if (e instanceof KvError) console.error(`[cache] 저장 실패: ${e.message}`)
-      })
 
     return new Response(body, {
       status: response.status,

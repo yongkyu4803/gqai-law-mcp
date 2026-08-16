@@ -17,6 +17,9 @@ const store = new Map<string, string>()
 /** 전역 통계 해시 대용 — bump()가 실제로 카운터를 올리는지 확인용 */
 const hashes = new Map<string, Record<string, number>>()
 
+/** 파이프라인이 실제로 어떤 명령을 보냈는지 — 저장이 '요청됐는지' 확인용 */
+const sentCommands: string[][] = []
+
 vi.mock("./kv-store.js", () => ({
   kvConfigured: () => true,
   kvGet: async (k: string) => (store.has(k) ? store.get(k)! : null),
@@ -28,15 +31,19 @@ vi.mock("./kv-store.js", () => ({
   kvHGetAll: async (k: string) =>
     Object.fromEntries(Object.entries(hashes.get(k) ?? {}).map(([f, v]) => [f, String(v)])),
   kvPipeline: async (cmds: (string | number)[][]) => {
-    for (const c of cmds) {
-      if (String(c[0]).toUpperCase() === "HINCRBY") {
-        const [, key, field, n] = c
-        const h = hashes.get(String(key)) ?? {}
-        h[String(field)] = (h[String(field)] ?? 0) + Number(n)
-        hashes.set(String(key), h)
+    return cmds.map((c) => {
+      const op = String(c[0]).toUpperCase()
+      sentCommands.push(c.map(String))
+      if (op === "GET") return store.get(String(c[1])) ?? null
+      if (op === "SET") { store.set(String(c[1]), String(c[2])); return "OK" }
+      if (op === "HINCRBY") {
+        const h = hashes.get(String(c[1])) ?? {}
+        h[String(c[2])] = (h[String(c[2])] ?? 0) + Number(c[3])
+        hashes.set(String(c[1]), h)
+        return h[String(c[2])]
       }
-    }
-    return cmds.map(() => 1)
+      return 1
+    })
   },
   KvError: class KvError extends Error {},
 }))
@@ -49,6 +56,7 @@ let upstreamCalls = 0
 beforeEach(() => {
   store.clear()
   hashes.clear()
+  sentCommands.length = 0
   upstreamCalls = 0
   vi.resetModules() // installed 플래그를 초기화해 매 시험이 실제로 래퍼를 설치하게 한다
 })
@@ -140,5 +148,29 @@ describe("전역 통계", () => {
     expect(stats.miss).toBe(1)
     expect(stats.hitRate).toBe(0.5)
     expect(stats.savedUpstreamCalls).toBe(1)
+  })
+})
+
+describe("저장 보장", () => {
+  it("응답을 돌려주기 전에 저장이 끝나 있다", async () => {
+    // 백그라운드로 던지면 Vercel이 응답 직후 함수를 얼려 저장이 유실될 수 있다.
+    // settle()을 기다리지 않고도 저장이 이미 끝나 있어야 한다.
+    await setupWith(() => new Response(BODY, { status: 200 }))
+
+    await fetch(LAW_URL)
+
+    // 여기서 setTimeout을 한 번도 넘기지 않았는데 이미 저장돼 있어야 한다
+    expect(store.size).toBe(1)
+    expect(sentCommands.some((c) => c[0] === "SET")).toBe(true)
+  })
+
+  it("캐시 불가 응답은 저장하지 않고 skip으로 기록한다", async () => {
+    await setupWith(() => new Response("", { status: 200 }))
+
+    await fetch(LAW_URL)
+
+    expect(store.size).toBe(0)
+    expect(sentCommands.some((c) => c[0] === "SET")).toBe(false)
+    expect(hashes.get("gqai:law:stats:2026-01-01")?.skip).toBe(1)
   })
 })
