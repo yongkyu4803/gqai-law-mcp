@@ -69,6 +69,10 @@ async function main() {
   line("저장소 오류", c.error ?? 0, c.error > 0 ? "⚠️ 저장소 상태 확인" : "")
 
   console.log("\n[한도] — 공용 키 총량 보호")
+  const lim = h.limits ?? {}
+  line("일일 상한", lim.fallbackDailyCap ?? "?",
+    !lim.fallbackDailyCap ? "⚠️ 0 = 무제한 — FALLBACK_DAILY_CAP을 설정하세요" : "")
+  line("분당 상한", lim.fallbackRpm ?? "?")
   const l = h.limiter ?? {}
   line("백엔드", l.backend, l.backend === "memory" ? "⚠️ 인스턴스별 분리 — 총량 미보호" : "")
   line("degrade 횟수", l.degradedCount ?? 0, (l.degradedCount ?? 0) > 0 ? `⚠️ 최근 ${l.lastDegradedAt}` : "")

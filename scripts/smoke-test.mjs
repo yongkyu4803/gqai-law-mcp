@@ -174,9 +174,12 @@ async function main() {
   }
 
   // 4. 조문 조회
+  // jo는 '제38조' 또는 6자리('003800') 형식을 받는다. 정수 문자열("1")을 넘기면
+  // 법령 헤더만 돌아오고 조문 본문은 NOT_FOUND가 된다.
   if (hasOc && mst) {
-    const r = await callTool("get_law_text", { mst, jo: "1" })
-    if (!r.isError && r.text.length > 50) {
+    const r = await callTool("get_law_text", { mst, jo: "제1조" })
+    const gotArticle = !r.isError && !/NOT_FOUND/.test(r.text) && r.text.length > 50
+    if (gotArticle) {
       record("조문", "민법 제1조 조회", "pass", `${r.text.length}자 반환`)
     } else {
       record("조문", "민법 제1조 조회", "fail", r.text.slice(0, 200))
@@ -197,22 +200,40 @@ async function main() {
     record("판례", "판례 검색", "skip", "LAW_OC 미설정")
   }
 
-  // 6. 시점 비교 — 같은 조문을 두 시행일 기준으로 조회
-  if (hasOc && mst) {
-    const past = await callTool("get_law_text", { mst, jo: "1", efYd: "20100101" })
-    const now = await callTool("get_law_text", { mst, jo: "1" })
-    if (!past.isError && !now.isError) {
-      record("시점", "두 시점 조문 비교", "pass", past.text === now.text ? "동일(개정 없음)" : "차이 확인됨")
+  // 6. 시점 비교 — 서로 다른 두 기준일이 각각 그 시점의 시행 버전으로 해석되는지
+  //
+  // get_law_text의 efYd로는 이걸 시험할 수 없다. efYd는 '임의의 날짜'가 아니라
+  // 실제 시행일과 정확히 일치해야 하는 값이라, 아무 과거 날짜나 넣으면 NOT_FOUND가 된다.
+  // 시점 해석은 legal_analysis의 applicable_law(행위시법 판단)가 담당한다 —
+  // 기준일에 시행 중이던 버전을 역산해 그 시점 조문과 부칙 경과조치까지 준다.
+  if (hasOc) {
+    const pick = (t) => (t.match(/MST\s*(\d{4,})/) || [])[1] ?? null
+    const past = await callTool("legal_analysis", {
+      mode: "applicable_law", lawName: "민법", jo: "제1조", date: "2010-01-01",
+    })
+    const recent = await callTool("legal_analysis", {
+      mode: "applicable_law", lawName: "민법", jo: "제1조", date: "2023-01-01",
+    })
+    const pastMst = pick(past.text)
+    const recentMst = pick(recent.text)
+
+    if (past.isError || recent.isError) {
+      record("시점", "두 시점 버전 해석", "fail", (past.text || recent.text).slice(0, 200))
+    } else if (pastMst && recentMst && pastMst !== recentMst) {
+      // 두 날짜가 서로 다른 버전으로 갈렸다 = 시점 해석이 실제로 동작한다
+      record("시점", "두 시점 버전 해석", "pass", `2010→MST ${pastMst}, 2023→MST ${recentMst}`)
+    } else if (/기준일에 시행 중이던 버전/.test(past.text)) {
+      record("시점", "두 시점 버전 해석", "pass", "버전 해석 동작(두 시점 동일 버전)")
     } else {
-      record("시점", "두 시점 조문 비교", "fail", (past.text || now.text).slice(0, 200))
+      record("시점", "두 시점 버전 해석", "fail", past.text.slice(0, 200))
     }
   } else {
-    record("시점", "두 시점 조문 비교", "skip", hasOc ? "mst 미확보" : "LAW_OC 미설정")
+    record("시점", "두 시점 버전 해석", "skip", "LAW_OC 미설정")
   }
 
   // 7. 오류 처리 — 존재하지 않는 조문
   if (hasOc && mst) {
-    const r = await callTool("get_law_text", { mst, jo: "99999" })
+    const r = await callTool("get_law_text", { mst, jo: "제9999조" })
     // 기대: 에러 플래그 또는 '찾을 수 없음' 계열 안내. 500이나 빈 응답이면 실패.
     const handled = r.isError || /찾을 수 없|없습니다|NOT_FOUND|확인해/i.test(r.text)
     record("오류", "존재하지 않는 조문", handled ? "pass" : "fail", r.text.slice(0, 120))
@@ -247,8 +268,13 @@ async function main() {
     const status = await rawRequestWithHost("evil.example.com")
     if (status === null) {
       record("보안", "비정상 Host 거부", "skip", "요청 전송 실패")
+    } else if (status === 403) {
+      record("보안", "비정상 Host 거부", "pass", "앱 미들웨어가 차단 (403)")
+    } else if (status === 404) {
+      // Vercel 엣지는 Host로 프로젝트를 고르므로 미등록 Host는 함수에 닿지 못한다
+      record("보안", "비정상 Host 거부", "pass", "플랫폼 엣지가 차단 (404, 함수 미도달)")
     } else {
-      record("보안", "비정상 Host 거부", status === 403 ? "pass" : "fail", `status=${status}`)
+      record("보안", "비정상 Host 거부", "fail", `거부되지 않음 status=${status}`)
     }
   }
 

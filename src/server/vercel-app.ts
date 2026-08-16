@@ -268,6 +268,14 @@ export function createApp(): express.Express {
         cacheEnabled: cacheEnabled(),
         authRequired: Boolean(process.env.MCP_AUTH_TOKEN),
       },
+      // 적용 중인 한도값 — 환경변수가 실제로 먹었는지 배포 후 바로 확인하기 위한 것.
+      // 값 자체는 비밀이 아니며, dailyCap이 0이면 공용 키에 일일 상한이 없다는 뜻이다.
+      limits: {
+        fallbackRpm: parseInt(process.env.FALLBACK_RATE_LIMIT_RPM || "120", 10),
+        fallbackDailyCap: parseInt(process.env.FALLBACK_DAILY_CAP || "0", 10),
+        ipRpm: parseInt(process.env.RATE_LIMIT_RPM || "120", 10),
+        maxBatchCalls: parseInt(process.env.MCP_MAX_BATCH_CALLS || "20", 10),
+      },
       cache: cacheStats(),
       limiter: limiterStats(),
       synthetic,
