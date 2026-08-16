@@ -25,7 +25,7 @@ import { maskSensitiveUrl } from "../lib/fetch-with-retry.js"
 import { LawApiClient } from "../lib/api-client.js"
 import { registerTools, TOOL_COUNTS } from "../tool-registry.js"
 import { VERSION } from "../version.js"
-import { createGlobalLimiter, createIpLimiter, limiterStats } from "../lib/global-rate-limit.js"
+import { createGlobalLimiter, createIpLimiter, limiterStats, dailyUsage } from "../lib/global-rate-limit.js"
 import { installLawCache, cacheStats, cacheEnabled } from "../lib/law-cache.js"
 import { kvConfigured } from "../lib/kv-store.js"
 import { syntheticStats } from "../lib/synthetic.js"
@@ -255,9 +255,11 @@ export function createApp(): express.Express {
   app.get("/health", async (_req, res) => {
     // 운영 판단에 필요한 상태를 한 번에 노출 — 비밀정보는 담지 않는다.
     // synthetic은 저장소 왕복이 필요하므로 실패해도 헬스체크는 계속 응답한다.
-    const [cache, synthetic] = await Promise.all([
+    const dailyCapValue = parseInt(process.env.FALLBACK_DAILY_CAP || "0", 10)
+    const [cache, synthetic, daily] = await Promise.all([
       cacheStats().catch(() => null),
       syntheticStats().catch(() => null),
+      dailyUsage(keyPrefix, dailyCapValue).catch(() => null),
     ])
     res.json({
       status: "ok",
@@ -280,7 +282,7 @@ export function createApp(): express.Express {
         maxBatchCalls: parseInt(process.env.MCP_MAX_BATCH_CALLS || "20", 10),
       },
       cache,
-      limiter: limiterStats(),
+      limiter: { ...limiterStats(), daily },
       synthetic,
     })
   })

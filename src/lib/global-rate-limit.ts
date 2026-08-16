@@ -15,7 +15,7 @@
  *   노출해 /health에서 관측할 수 있게 한다.
  */
 
-import { kvConfigured, kvEval, kvIncrBy, kstDayKey, KvError } from "./kv-store.js"
+import { kvConfigured, kvEval, kvGet, kvIncrBy, kstDayKey, KvError } from "./kv-store.js"
 import { createTokenBucket, createDailyCap, type Verdict } from "./rate-limit.js"
 
 /** 원자적 토큰버킷 — HMGET/계산/HSET을 한 번의 EVAL로 묶는다 */
@@ -182,6 +182,34 @@ export function createGlobalLimiter(opts: GlobalLimiterOptions): GlobalLimiter {
         throw e
       }
     },
+  }
+}
+
+/**
+ * 오늘 공용 키가 실제로 얼마나 쓰였는지 Redis에서 직접 읽는다.
+ *
+ * limiterStats()의 lastDailyUsed는 '그 인스턴스가 마지막으로 한도를 확인했을 때'
+ * 값이라, 한도 게이트를 한 번도 안 지난 인스턴스가 /health를 처리하면 null이 된다.
+ * 남은 쿼터는 상한을 조정하는 근거가 되는 값이라 인스턴스 운에 맡길 수 없다.
+ */
+export async function dailyUsage(
+  prefix: string,
+  cap: number
+): Promise<Record<string, unknown> | null> {
+  if (cap <= 0) return { cap: 0, used: null, remaining: null, note: "일일 상한 미설정 — 무제한" }
+  if (!kvConfigured()) return null
+  try {
+    const raw = await kvGet(`${prefix}:fallback:daily:${kstDayKey()}`)
+    const used = Number(raw || 0)
+    return {
+      day: kstDayKey(),
+      cap,
+      used,
+      remaining: Math.max(0, cap - used),
+      usedPct: Number(((used / cap) * 100).toFixed(1)),
+    }
+  } catch {
+    return null
   }
 }
 

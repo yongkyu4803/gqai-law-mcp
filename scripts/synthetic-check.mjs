@@ -79,7 +79,12 @@ async function main() {
   const l = h.limiter ?? {}
   line("백엔드", l.backend, l.backend === "memory" ? "⚠️ 인스턴스별 분리 — 총량 미보호" : "")
   line("degrade 횟수", l.degradedCount ?? 0, (l.degradedCount ?? 0) > 0 ? `⚠️ 최근 ${l.lastDegradedAt}` : "")
-  line("금일 사용량", l.lastDailyUsed ?? "관측 없음")
+  const d = l.daily
+  if (d && d.used !== null && d.used !== undefined) {
+    line("금일 사용량", `${d.used} / ${d.cap}`, `잔여 ${d.remaining} (${d.usedPct}% 소진)`)
+  } else {
+    line("금일 사용량", "관측 없음", d?.note ?? "")
+  }
 
   console.log("\n[감시] — Vercel 출구 → 법제처 도달성")
   const s = h.synthetic
