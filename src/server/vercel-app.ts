@@ -375,6 +375,22 @@ export function createApp(): express.Express {
   app.get("/mcp", methodNotAllowed)
   app.delete("/mcp", methodNotAllowed)
 
+  // 정의되지 않은 경로.
+  //
+  // Express 기본 404는 HTML로 "Cannot GET /요청경로"를 되비춘다. 이 서버의 다른
+  // 응답은 전부 JSON이라 클라이언트 파싱이 갈리고, 경로를 그대로 반사할 이유도 없다.
+  //
+  // MCP 클라이언트가 연결 전에 탐색하는 /.well-known/oauth-* 도 여기로 온다.
+  // 인증 없는 서버는 이 경로에 404를 돌려주는 것이 맞고, 클라이언트는 그 신호를
+  // 받아 인증 없이 연결을 진행한다 — 즉 이 404는 정상 동작의 일부다.
+  app.use((_req, res) => {
+    res.status(404).json({
+      jsonrpc: "2.0",
+      error: { code: -32601, message: "Not found." },
+      id: null,
+    })
+  })
+
   // 최종 에러 핸들러 — Express 기본 핸들러는 스택 트레이스와 설치 경로를 본문에 싣는다
   app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     const status = typeof err?.status === "number" ? err.status : 500
