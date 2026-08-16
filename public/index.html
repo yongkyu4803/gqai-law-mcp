@@ -78,6 +78,18 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 1.0625rem; font-weight: 600; color: var(--accent); word-break: break-all;
   }
+  .endpoint-note { margin: .6rem 0 0; font-size: .8125rem; color: var(--muted); }
+  .url-row { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+  .url-row .url { flex: 1 1 auto; min-width: 0; }
+  #copy-url {
+    flex: 0 0 auto; cursor: pointer;
+    background: var(--bg); color: var(--accent);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: .35rem .75rem; font-size: .8125rem; font-weight: 600;
+    font-family: inherit;
+  }
+  #copy-url:hover { border-color: var(--accent); }
+  #copy-url[data-done] { color: var(--muted); }
   .notice {
     background: var(--warn-bg); border: 1px solid var(--warn-border);
     border-radius: 8px; padding: .9rem 1.15rem; margin: 1.25rem 0;
@@ -91,8 +103,6 @@
     margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
     color: var(--muted); font-size: .875rem;
   }
-  .todo { color: #b4691f; }
-  @media (prefers-color-scheme: dark) { .todo { color: #d9a05b; } }
 </style>
 </head>
 <body>
@@ -108,7 +118,13 @@
 
 <div class="endpoint">
   <div class="label">MCP 연결 주소</div>
-  <div class="url">https://law.gqai.kr/mcp</div>
+  <div class="url-row">
+    <span class="url" data-mcp-url>https://law.gqai.kr/mcp</span>
+    <button type="button" id="copy-url" aria-label="연결 주소 복사">복사</button>
+  </div>
+  <p class="endpoint-note" id="temp-host-note" hidden>
+    임시 주소입니다. 정식 주소 <code>law.gqai.kr</code> 연결 후에는 커넥터 설정을 바꿔주세요.
+  </p>
 </div>
 
 <h2>연결 방법</h2>
@@ -120,7 +136,7 @@
 <pre><code>{
   "mcpServers": {
     "gqai-law": {
-      "url": "https://law.gqai.kr/mcp"
+      "url": "<span data-mcp-url>https://law.gqai.kr/mcp</span>"
     }
   }
 }</code></pre>
@@ -190,8 +206,10 @@
 </p>
 
 <h2>문의 및 오류 제보</h2>
-<p class="todo">
-  ※ 배포 전 실제 제보 경로(이메일 또는 이슈 트래커 주소)로 교체하세요.
+<p>
+  조회 결과가 이상하거나 서비스가 응답하지 않으면
+  <a href="https://github.com/yongkyu4803/gqai-law-mcp/issues" target="_blank" rel="noopener">GitHub 이슈</a>로
+  알려주세요. 어떤 질문을 했는지와 받은 응답을 함께 적어주시면 원인을 빨리 찾을 수 있습니다.
 </p>
 
 <footer>
@@ -200,5 +218,38 @@
 </footer>
 
 </main>
+
+<script>
+  // 페이지에 적힌 연결 주소를 '지금 이 페이지를 열어놓은 주소' 기준으로 바꾼다.
+  //
+  // 커스텀 도메인 연결 전에는 *.vercel.app 으로, 연결 후에는 law.gqai.kr 로
+  // 접속하게 되는데, 안내 주소를 하드코딩하면 둘 중 한쪽에서는 반드시 동작하지
+  // 않는 주소를 복사하게 된다. 읽는 사람이 실제로 쓸 수 있는 주소를 보여준다.
+  // (스크립트가 막힌 환경에서는 HTML에 적힌 정식 도메인이 그대로 남는다.)
+  (function () {
+    var url = location.origin + "/mcp";
+    var nodes = document.querySelectorAll("[data-mcp-url]");
+    for (var i = 0; i < nodes.length; i++) nodes[i].textContent = url;
+
+    // 정식 도메인이 아니면 주소가 바뀔 수 있음을 알린다 —
+    // 지금 등록한 커넥터가 나중에 조용히 끊기는 것을 막기 위해서다.
+    var note = document.getElementById("temp-host-note");
+    if (note && location.hostname !== "law.gqai.kr") note.hidden = false;
+
+    var btn = document.getElementById("copy-url");
+    if (!btn || !navigator.clipboard) { if (btn) btn.hidden = true; return; }
+    btn.addEventListener("click", function () {
+      navigator.clipboard.writeText(url).then(function () {
+        btn.textContent = "복사됨";
+        btn.setAttribute("data-done", "");
+        setTimeout(function () {
+          btn.textContent = "복사";
+          btn.removeAttribute("data-done");
+        }, 1500);
+      });
+    });
+  })();
+</script>
+
 </body>
 </html>
